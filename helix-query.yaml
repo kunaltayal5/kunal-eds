@@ -1,24 +1,51 @@
 version: 1
 indices:
-  query-index:
+  custom-index:
     include:
       - /**
     exclude:
       - /docs/**
-    target: /query-index.json
+    target: /custom-index.json
     properties:
+      path:
+        select: none
+        value: path
+      lastModified:
+        select: none
+        value: parseTimestamp(headers['last-modified'], 'ddd, DD MMM YYYY HH:mm:ss GMT')
+      robots:
+        select: head > meta[name="robots"]
+        value: attribute(el, 'content')
       title:
         select: head > meta[property="og:title"]
         value: attribute(el, 'content')
       description:
         select: head > meta[name="description"]
         value: attribute(el, 'content')
+      content:
+        select: main
+        value: textContent(el)
+      headings:
+        select: main h1, main h2, main h3, main h4, main h5, main h6
+        values: textContent(el)
       image:
         select: head > meta[property="og:image"]
         value: attribute(el, 'content')
-      lastModified:
-        select: none
-        value: parseTimestamp(headers['last-modified'], 'ddd, DD MMM YYYY HH:mm:ss GMT')
-      path:
-        select: none
-        value: path
+      imageAlt:
+        select: head > meta[property="og:image:alt"]
+        value: attribute(el, 'content')
+      keywords:
+        select: head > meta[name="keywords"]
+        value: attribute(el, 'content')
+      author:
+        select: head > meta[name="author"]
+        value: attribute(el, 'content')
+      publishedDate:
+        select: head > meta[name="publication-date"]
+        value: attribute(el, 'content')
+      category:
+        select: head > meta[name="category"]
+        value: attribute(el, 'content')
+      tags:
+        select: head > meta[name="tags"]
+        value: attribute(el, 'content')
