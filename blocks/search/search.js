@@ -1,94 +1,85 @@
-export default function decorate(block) {
+export default async function decorate(block) {
   block.innerHTML = `
     <div class="search-container">
-      <input type="text" class="search-input" placeholder="Search on this page..." />
+      <input type="text" class="search-input" placeholder="Search across all pages..." />
       <button class="search-btn">Search</button>
       <div class="search-summary"></div>
+      <ul class="search-results"></ul>
     </div>
   `;
 
   const input = block.querySelector('.search-input');
   const btn = block.querySelector('.search-btn');
   const summary = block.querySelector('.search-summary');
+  const results = block.querySelector('.search-results');
 
-  // Remove previous highlights
-  function clearHighlights() {
-    document.querySelectorAll('mark.search-highlight').forEach((mark) => {
-      const parent = mark.parentNode;
-      parent.replaceChild(document.createTextNode(mark.textContent), mark);
-      parent.normalize();
+  // Fetch query-index.json
+  async function fetchIndex() {
+    const resp = await fetch('/query-index.json');
+    const json = await resp.json();
+    return json.data;
+  }
+
+  // Search through all pages
+  function searchPages(pages, keyword) {
+    const kw = keyword.toLowerCase().trim();
+    return pages.filter((page) => {
+      const title = (page.title || '').toLowerCase();
+      const description = (page.description || '').toLowerCase();
+      const path = (page.path || '').toLowerCase();
+      return title.includes(kw) || description.includes(kw) || path.includes(kw);
     });
   }
 
-  // Highlight all matches on the page
-  function highlightText(keyword) {
-    clearHighlights();
-    if (!keyword.trim()) {
-      summary.textContent = '';
+  // Highlight keyword in text
+  function highlight(text, keyword) {
+    if (!text) return '';
+    const regex = new RegExp(`(${keyword})`, 'gi');
+    return text.replace(regex, '<mark>$1</mark>');
+  }
+
+  // Render results
+  function renderResults(matches, keyword) {
+    results.innerHTML = '';
+    summary.textContent = '';
+
+    if (matches.length === 0) {
+      summary.textContent = 'No results found';
+      summary.style.color = 'red';
       return;
     }
 
-    const searchBlock = block.closest('.search');
-    let count = 0;
+    summary.textContent = `${matches.length} result(s) found`;
+    summary.style.color = 'green';
 
-    // Walk through all text nodes on the page
-    function walkNode(node) {
-      // Skip the search block itself
-      if (node === searchBlock) return;
-
-      if (node.nodeType === Node.TEXT_NODE) {
-        const text = node.textContent;
-        const index = text.toLowerCase().indexOf(keyword.toLowerCase());
-        if (index !== -1) {
-          const before = document.createTextNode(text.slice(0, index));
-          const mark = document.createElement('mark');
-          mark.className = 'search-highlight';
-          mark.textContent = text.slice(index, index + keyword.length);
-          const after = document.createTextNode(text.slice(index + keyword.length));
-
-          const parent = node.parentNode;
-          parent.insertBefore(before, node);
-          parent.insertBefore(mark, node);
-          parent.insertBefore(after, node);
-          parent.removeChild(node);
-          count += 1;
-        }
-      } else if (node.nodeType === Node.ELEMENT_NODE) {
-        // Skip script and style tags
-        if (node.tagName === 'SCRIPT' || node.tagName === 'STYLE') return;
-        Array.from(node.childNodes).forEach(walkNode);
-      }
-    }
-
-    walkNode(document.body);
-
-    // Show result count
-    if (count > 0) {
-      summary.textContent = `${count} match(es) found`;
-      summary.style.color = 'green';
-      // Scroll to first match
-      const first = document.querySelector('mark.search-highlight');
-      if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    } else {
-      summary.textContent = 'No matches found';
-      summary.style.color = 'red';
-    }
+    matches.forEach((page) => {
+      const li = document.createElement('li');
+      li.className = 'search-result-item';
+      li.innerHTML = `
+        <a href="${page.path}" class="search-result-link">
+          <h3>${highlight(page.title, keyword)}</h3>
+          <p>${highlight(page.description, keyword)}</p>
+          <span class="search-result-path">${page.path}</span>
+        </a>
+      `;
+      results.appendChild(li);
+    });
   }
 
-  btn.addEventListener('click', () => {
-    highlightText(input.value);
-  });
-
-  // Also search on Enter key
-  input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') highlightText(input.value);
-  });
-
-  // Clear highlights when input is cleared
-  input.addEventListener('input', () => {
-    if (!input.value) {
-      clearHighlights();
+  async function doSearch() {
+    const keyword = input.value.trim();
+    if (!keyword) {
       summary.textContent = '';
+      results.innerHTML = '';
+      return;
     }
+    const pages = await fetchIndex();
+    const matches = searchPages(pages, keyword);
+    renderResults(matches, keyword);
+  }
+
+  btn.addEventListener('click', doSearch);
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') doSearch();
   });
 }
