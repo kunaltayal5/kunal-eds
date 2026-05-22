@@ -1,84 +1,122 @@
-export default async function decorate(block) {
+const INDEX_PATH = '/query-index.json';
+
+const SEARCH_FIELDS = [
+  'title',
+  'description',
+  'keywords',
+  'author',
+  'publishedDate',
+  'category',
+  'tags',
+  'headings',
+  'content',
+  'path',
+];
+
+let indexPromise;
+
+function getSearchValue(item, field) {
+  const value = item[field];
+
+  if (Array.isArray(value)) {
+    return value.join(' ');
+  }
+
+  return value || '';
+}
+
+function escapeHTML(value = '') {
+  const div = document.createElement('div');
+  div.textContent = value;
+  return div.innerHTML;
+}
+
+function matchesQuery(item, query) {
+  const searchText = query.toLowerCase();
+
+  return SEARCH_FIELDS.some((field) => (
+    getSearchValue(item, field).toString().toLowerCase().includes(searchText)
+  ));
+}
+
+async function fetchIndex() {
+  if (!indexPromise) {
+    indexPromise = fetch(INDEX_PATH)
+      .then((response) => {
+        if (!response.ok) {
+          throw new Error(`Unable to load search index: ${response.status}`);
+        }
+        return response.json();
+      })
+      .then((json) => json.data || []);
+  }
+
+  return indexPromise;
+}
+
+export default function decorate(block) {
   block.innerHTML = `
-    <div class="search-container">
-      <input type="text" class="search-input" placeholder="Search across all pages..." />
-      <button class="search-btn">Search</button>
-      <div class="search-summary"></div>
-      <ul class="search-results"></ul>
+    <div class="search-input-wrapper">
+      <input type="search" placeholder="Search..." aria-label="Search">
+      <button type="button">Search</button>
     </div>
+    <div class="search-summary" aria-live="polite"></div>
+    <div class="search-results"></div>
   `;
 
-  const input = block.querySelector('.search-input');
-  const btn = block.querySelector('.search-btn');
+  const input = block.querySelector('input');
+  const button = block.querySelector('button');
   const summary = block.querySelector('.search-summary');
   const results = block.querySelector('.search-results');
 
-  // Fetch query-index.json
-  async function fetchIndex() {
-    const resp = await fetch('/query-index.json');
-    const json = await resp.json();
-    return json.data;
-  }
-
-  // Search through all pages
-  function searchPages(pages, keyword) {
-    const kw = keyword.toLowerCase().trim();
-    return pages.filter((page) => {
-      const title = (page.title || '').toLowerCase();
-      const description = (page.description || '').toLowerCase();
-      const path = (page.path || '').toLowerCase();
-      return title.includes(kw) || description.includes(kw) || path.includes(kw);
-    });
-  }
-
-  // Highlight keyword in text
-  function highlight(text, keyword) {
-    if (!text) return '';
-    const regex = new RegExp(`(${keyword})`, 'gi');
-    return text.replace(regex, '<mark>$1</mark>');
-  }
-
-  // Render results
-  function renderResults(matches, keyword) {
-    results.innerHTML = '';
+  function clearResults() {
     summary.textContent = '';
+    results.innerHTML = '';
+  }
 
+  function renderResults(matches) {
     if (matches.length === 0) {
-      summary.textContent = 'No results found';
-      summary.style.color = 'red';
+      summary.textContent = 'No results found.';
+      results.innerHTML = '';
       return;
     }
 
     summary.textContent = `${matches.length} result(s) found`;
-    summary.style.color = 'green';
+    results.innerHTML = matches.map((item) => {
+      const path = escapeHTML(item.path || '#');
+      const title = escapeHTML(item.title || item.path || 'Untitled');
+      const description = escapeHTML(item.description || '');
 
-    matches.forEach((page) => {
-      const li = document.createElement('li');
-      li.className = 'search-result-item';
-      li.innerHTML = `
-        <a href="${page.path}" class="search-result-link">
-          <h3>${highlight(page.title, keyword)}</h3>
-          <p>${highlight(page.description, keyword)}</p>
-          <span class="search-result-path">${page.path}</span>
-        </a>
+      return `
+        <article class="search-result-item">
+          <h3><a href="${path}">${title}</a></h3>
+          ${description ? `<p>${description}</p>` : ''}
+          <span class="search-result-path">${path}</span>
+        </article>
       `;
-      results.appendChild(li);
-    });
+    }).join('');
   }
 
   async function doSearch() {
-    const keyword = input.value.trim();
-    if (!keyword) {
-      summary.textContent = '';
-      results.innerHTML = '';
+    const query = input.value.trim();
+
+    if (!query) {
+      clearResults();
       return;
     }
-    const pages = await fetchIndex();
-    const matches = searchPages(pages, keyword);
-    renderResults(matches, keyword);
+
+    summary.textContent = 'Searching...';
+    results.innerHTML = '';
+
+    try {
+      const pages = await fetchIndex();
+      renderResults(pages.filter((page) => matchesQuery(page, query)));
+    } catch {
+      summary.textContent = 'Search is not available right now.';
+    }
   }
 
-  btn.addEventListener('click', doSearch);
+  button.addEventListener('click', doSearch);
   input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') doSearch();
   });
